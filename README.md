@@ -12,7 +12,7 @@ En el `package.json` de la app consumidora:
 
 ```json
 "dependencies": {
-  "@jabex/nodo-dte-client": "github:syga-tic/nodo-dte-client#main"
+  "@jabex/nodo-dte-client": "github:luisarayaespinoza1-ERP/nodo-dte-client#main"
 }
 ```
 
