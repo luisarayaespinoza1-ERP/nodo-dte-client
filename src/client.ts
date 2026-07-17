@@ -1,4 +1,14 @@
-import type { AnnulOptions, DocType, DteRecord, EmitPayload, NodoClientConfig } from "./types";
+import {
+  ACCEPTED_STATUSES,
+  ERROR_STATUSES,
+  NON_FINAL_STATUSES,
+  type AnnulOptions,
+  type DocType,
+  type DteRecord,
+  type EmitPayload,
+  type NodoClientConfig,
+  type PollOptions,
+} from "./types";
 
 function authHeaders(apiKey: string): Record<string, string> {
   return { Authorization: `Bearer ${apiKey}` };
@@ -12,10 +22,12 @@ async function parseJsonOrThrow<T>(res: Response, action: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export function createNodoClient(config: NodoClientConfig) {
   const base = config.baseUrl.replace(/\/$/, "");
 
-  return {
+  const client = {
     /** GET /api/v1/dte/ping — el ERP responde 404 cuando la key es valida (no hay endpoint real, solo valida auth) */
     async ping(): Promise<{ ok: boolean; status: number }> {
       const res = await fetch(`${base}/api/v1/dte/ping`, {
@@ -24,6 +36,8 @@ export function createNodoClient(config: NodoClientConfig) {
       return { ok: res.status === 404, status: res.status };
     },
 
+    /** Emite un DTE. NODO es asíncrono: la respuesta suele venir en PENDING/SENT
+     *  — usar pollUntilFinal(id) para esperar el estado final del SII. */
     async emit(payload: EmitPayload, idempotencyKey?: string): Promise<DteRecord> {
       const headers: Record<string, string> = {
         ...authHeaders(config.apiKey),
@@ -38,11 +52,41 @@ export function createNodoClient(config: NodoClientConfig) {
       return parseJsonOrThrow<DteRecord>(res, "emit");
     },
 
+    /** Crea un BORRADOR (requiere scope dte:draft) — un humano lo confirma en la app. */
+    async draft(payload: EmitPayload, idempotencyKey?: string): Promise<DteRecord> {
+      const headers: Record<string, string> = {
+        ...authHeaders(config.apiKey),
+        "Content-Type": "application/json",
+      };
+      if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+      const res = await fetch(`${base}/api/v1/dte/draft`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+      return parseJsonOrThrow<DteRecord>(res, "draft");
+    },
+
     async get(id: string): Promise<DteRecord> {
       const res = await fetch(`${base}/api/v1/dte/${id}`, {
         headers: authHeaders(config.apiKey),
       });
       return parseJsonOrThrow<DteRecord>(res, "get");
+    },
+
+    /** Hace polling de get(id) hasta que el DTE llega a un estado final del SII
+     *  (aceptado o error). Devuelve el último DteRecord — el caller revisa
+     *  .status. Estandariza el polling que antes cada app reimplementaba. */
+    async pollUntilFinal(id: string, opts?: PollOptions): Promise<DteRecord> {
+      const attempts = opts?.attempts ?? 10;
+      const intervalMs = opts?.intervalMs ?? 3000;
+      let last: DteRecord = await client.get(id);
+      for (let i = 0; i < attempts; i++) {
+        if (!NON_FINAL_STATUSES.includes(last.status)) return last;
+        await sleep(intervalMs);
+        last = await client.get(id);
+      }
+      return last;
     },
 
     /** Devuelve la Response cruda (stream) para reenviarla desde un route handler sin bufferear en memoria */
@@ -72,7 +116,10 @@ export function createNodoClient(config: NodoClientConfig) {
       return parseJsonOrThrow<DteRecord>(res, "annul");
     },
   };
+
+  return client;
 }
 
 export type NodoClient = ReturnType<typeof createNodoClient>;
-export type { DocType, DteRecord, EmitItem, EmitPayload, NodoClientConfig } from "./types";
+export { ACCEPTED_STATUSES, ERROR_STATUSES, NON_FINAL_STATUSES };
+export type { AnnulOptions, DocType, DteRecord, EmitItem, EmitPayload, EmitReference, NodoClientConfig, PollOptions } from "./types";

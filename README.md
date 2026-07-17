@@ -36,14 +36,22 @@ const nodo = createNodoClient({
   apiKey: process.env.ERP_API_KEY!,
 });
 
-const dte = await nodo.emit({
-  docType: 39,
-  receptorName: "Cliente Anónimo",
-  items: [{ name: "Servicio", quantity: 1, unitPrice: 10000 }],
-});
+// NODO es asíncrono: emit() suele devolver PENDING/SENT.
+const dte = await nodo.emit(
+  {
+    docType: 39, // boleta; 33 factura, 61 NC (con references)
+    receptorName: "Cliente Anónimo",
+    items: [{ name: "Servicio", quantity: 1, unitPrice: 10000 }], // isExempt?, discountPercent?
+  },
+  crypto.randomUUID(), // Idempotency-Key: evita doble emisión ante reintentos
+);
 
-const estado = await nodo.get(dte.id);
+// Esperar el estado final del SII (aceptado/rechazado) sin reinventar el polling:
+const final = await nodo.pollUntilFinal(dte.id); // { status: 'ACCEPTED', folio, ... }
 ```
+
+Métodos: `emit`, `draft` (scope `dte:draft`), `get`, `pollUntilFinal`, `pdf`, `xml`, `annul`, `ping`.
+Constantes de estado exportadas: `ACCEPTED_STATUSES`, `NON_FINAL_STATUSES`, `ERROR_STATUSES`.
 
 ### Proxy de PDF/XML/anulación en un route handler (App Router)
 
