@@ -46,13 +46,35 @@ export interface NodoClientConfig {
   apiKey: string;
 }
 
+/** Respuesta de POST /api/v1/dte/emit — el DTE se emite async (status inicial
+ *  suele ser PENDING; usar pollUntilFinal(dteId) para el estado final). */
+export interface EmitResult {
+  success: boolean;
+  dteId: string;
+  status: string;
+}
+
+/** Respuesta de GET /api/v1/dte/:id — snake_case, como lo devuelve el ERP. */
 export interface DteRecord {
   id: string;
-  docType: DocType;
+  doc_type: number;
   folio?: number;
   /** DRAFT | PENDING | SENT | ACCEPTED | ACCEPTED_WITH_DISCREPANCIES | REJECTED | CANCELLED */
   status: string;
+  sii_status?: string | null;
+  sii_estado_dte?: string | null;
+  total?: number;
+  issue_date?: string;
+  payment_status?: string | null;
+  items?: unknown[];
+  references?: unknown[];
   [key: string]: unknown;
+}
+
+/** Respuesta de POST /api/v1/dte/draft — crea un borrador para revisión humana. */
+export interface DraftResult {
+  draft_id: string;
+  review_url: string;
 }
 
 export interface AnnulOptions {

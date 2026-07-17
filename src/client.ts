@@ -4,8 +4,10 @@ import {
   NON_FINAL_STATUSES,
   type AnnulOptions,
   type DocType,
+  type DraftResult,
   type DteRecord,
   type EmitPayload,
+  type EmitResult,
   type NodoClientConfig,
   type PollOptions,
 } from "./types";
@@ -38,7 +40,7 @@ export function createNodoClient(config: NodoClientConfig) {
 
     /** Emite un DTE. NODO es asíncrono: la respuesta suele venir en PENDING/SENT
      *  — usar pollUntilFinal(id) para esperar el estado final del SII. */
-    async emit(payload: EmitPayload, idempotencyKey?: string): Promise<DteRecord> {
+    async emit(payload: EmitPayload, idempotencyKey?: string): Promise<EmitResult> {
       const headers: Record<string, string> = {
         ...authHeaders(config.apiKey),
         "Content-Type": "application/json",
@@ -49,11 +51,11 @@ export function createNodoClient(config: NodoClientConfig) {
         headers,
         body: JSON.stringify(payload),
       });
-      return parseJsonOrThrow<DteRecord>(res, "emit");
+      return parseJsonOrThrow<EmitResult>(res, "emit");
     },
 
     /** Crea un BORRADOR (requiere scope dte:draft) — un humano lo confirma en la app. */
-    async draft(payload: EmitPayload, idempotencyKey?: string): Promise<DteRecord> {
+    async draft(payload: EmitPayload, idempotencyKey?: string): Promise<DraftResult> {
       const headers: Record<string, string> = {
         ...authHeaders(config.apiKey),
         "Content-Type": "application/json",
@@ -64,7 +66,7 @@ export function createNodoClient(config: NodoClientConfig) {
         headers,
         body: JSON.stringify(payload),
       });
-      return parseJsonOrThrow<DteRecord>(res, "draft");
+      return parseJsonOrThrow<DraftResult>(res, "draft");
     },
 
     async get(id: string): Promise<DteRecord> {
@@ -122,4 +124,4 @@ export function createNodoClient(config: NodoClientConfig) {
 
 export type NodoClient = ReturnType<typeof createNodoClient>;
 export { ACCEPTED_STATUSES, ERROR_STATUSES, NON_FINAL_STATUSES };
-export type { AnnulOptions, DocType, DteRecord, EmitItem, EmitPayload, EmitReference, NodoClientConfig, PollOptions } from "./types";
+export type { AnnulOptions, DocType, DraftResult, DteRecord, EmitItem, EmitPayload, EmitReference, EmitResult, NodoClientConfig, PollOptions } from "./types";
