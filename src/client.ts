@@ -11,6 +11,7 @@ import {
   type NodoClientConfig,
   type PollOptions,
 } from "./types";
+import { defaultIdempotencyKey } from "./idempotency";
 
 function authHeaders(apiKey: string): Record<string, string> {
   return { Authorization: `Bearer ${apiKey}` };
@@ -39,13 +40,15 @@ export function createNodoClient(config: NodoClientConfig) {
     },
 
     /** Emite un DTE. NODO es asíncrono: la respuesta suele venir en PENDING/SENT
-     *  — usar pollUntilFinal(id) para esperar el estado final del SII. */
+     *  — usar pollUntilFinal(id) para esperar el estado final del SII.
+     *  Si no pasas idempotencyKey, se deriva una determinística del payload
+     *  (mismo contenido → misma key), así un retry nunca duplica la emisión. */
     async emit(payload: EmitPayload, idempotencyKey?: string): Promise<EmitResult> {
       const headers: Record<string, string> = {
         ...authHeaders(config.apiKey),
         "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey ?? defaultIdempotencyKey("emit", payload),
       };
-      if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
       const res = await fetch(`${base}/api/v1/dte/emit`, {
         method: "POST",
         headers,
@@ -54,13 +57,14 @@ export function createNodoClient(config: NodoClientConfig) {
       return parseJsonOrThrow<EmitResult>(res, "emit");
     },
 
-    /** Crea un BORRADOR (requiere scope dte:draft) — un humano lo confirma en la app. */
+    /** Crea un BORRADOR (requiere scope dte:draft) — un humano lo confirma en la app.
+     *  Mismo default de idempotencyKey que emit(). */
     async draft(payload: EmitPayload, idempotencyKey?: string): Promise<DraftResult> {
       const headers: Record<string, string> = {
         ...authHeaders(config.apiKey),
         "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey ?? defaultIdempotencyKey("draft", payload),
       };
-      if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
       const res = await fetch(`${base}/api/v1/dte/draft`, {
         method: "POST",
         headers,
@@ -108,9 +112,15 @@ export function createNodoClient(config: NodoClientConfig) {
       return res;
     },
 
+    /** Anula un DTE. Sin idempotencyKey explícita, usa el propio id como key
+     *  por defecto — a diferencia de emit()/draft(), anular el mismo id dos
+     *  veces siempre debe ser la misma operación (no hace falta bucket
+     *  horario: no existe un "anular esto de nuevo, pero distinto"). */
     async annul(id: string, opts?: AnnulOptions): Promise<DteRecord> {
-      const headers: Record<string, string> = { ...authHeaders(config.apiKey) };
-      if (opts?.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;
+      const headers: Record<string, string> = {
+        ...authHeaders(config.apiKey),
+        "Idempotency-Key": opts?.idempotencyKey ?? `annul:${id}`,
+      };
       const res = await fetch(`${base}/api/v1/dte/${id}/annul`, {
         method: "POST",
         headers,
