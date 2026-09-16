@@ -1,6 +1,6 @@
 {
   "name": "@jabex/nodo-dte-client",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
   "description": "Cliente compartido para la API v1 de NODO (ERP JABEX, facturacion DTE) - usado por Porteria, MiPicada, Lawen y Raudo",
   "type": "module",
@@ -15,5 +15,8 @@
   ],
   "devDependencies": {
     "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "test": "npx tsx --test src/**/*.test.ts"
   }
 }
