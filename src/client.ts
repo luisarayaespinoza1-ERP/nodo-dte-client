@@ -2,6 +2,13 @@ import {
   ACCEPTED_STATUSES,
   ERROR_STATUSES,
   NON_FINAL_STATUSES,
+  PAYMENT_FINAL_STATUSES,
+  type CancelPaymentIntentResult,
+  type CreatePaymentIntentPayload,
+  type PaymentIntent,
+  type PaymentPollOptions,
+  type PaymentTerminal,
+  type RefundPaymentIntentResult,
   type AnnulOptions,
   type DocType,
   type DraftResult,
@@ -127,11 +134,128 @@ export function createNodoClient(config: NodoClientConfig) {
       });
       return parseJsonOrThrow<DteRecord>(res, "annul");
     },
+
+    /**
+     * Cobros en terminales POS físicos (Mercado Pago Point, TUU…) a través del
+     * hub de pagos de NODO. Scopes: `payments:write` / `payments:read` /
+     * `payments:refund` (este último se pide aparte al crear la key).
+     *
+     * La regla que hay que entender antes de integrar: el cobro va ANTES que el
+     * documento. Creá el intento, esperá APPROVED, y recién ahí emití tu boleta.
+     */
+    payments: {
+      /**
+       * Crea un cobro y lo empuja al terminal.
+       *
+       * `idempotencyKey` es OBLIGATORIA a propósito, y a diferencia de emit()
+       * NO tiene default derivado del contenido. En pagos ese default sería un
+       * bug: dos clientes que pagan lo mismo en el mismo terminal dentro de la
+       * misma hora (un bidón de $2.000, un café) tendrían la misma key, y el
+       * segundo recibiría el cobro del primero en vez de pagar. Pasá el id de
+       * TU operación (order.id, ticket.id): un reintento con esa key devuelve
+       * el mismo cobro y nunca pasa la tarjeta dos veces.
+       */
+      async createIntent(payload: CreatePaymentIntentPayload, idempotencyKey: string): Promise<PaymentIntent> {
+        if (!idempotencyKey) {
+          throw new Error("NODO payments.createIntent: idempotencyKey es obligatoria (usá el id de tu operación)");
+        }
+        const res = await fetch(`${base}/api/v1/payments/intents`, {
+          method: "POST",
+          headers: {
+            ...authHeaders(config.apiKey),
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify(payload),
+        });
+        return parseJsonOrThrow<PaymentIntent>(res, "payments.createIntent");
+      },
+
+      /** Estado actual. NODO le pregunta al adquirente antes de responder. */
+      async getIntent(id: string): Promise<PaymentIntent> {
+        const res = await fetch(`${base}/api/v1/payments/intents/${id}`, {
+          headers: authHeaders(config.apiKey),
+        });
+        return parseJsonOrThrow<PaymentIntent>(res, "payments.getIntent");
+      },
+
+      /**
+       * Espera hasta un estado final respetando el ritmo que sugiere NODO
+       * (`poll_after_ms`, que depende del adquirente — TUU no aguanta menos de
+       * 2 s). Preferí el webhook `payment.intent_changed` si podés recibirlo:
+       * esto existe para cuando no.
+       *
+       * Un error de red NO corta la espera: el cobro puede estar aprobándose en
+       * el terminal justo en ese momento. Solo el timeout la corta.
+       */
+      async pollUntilFinal(id: string, opts?: PaymentPollOptions): Promise<PaymentIntent> {
+        const timeoutMs = opts?.timeoutMs ?? 10 * 60 * 1000;
+        const minIntervalMs = opts?.minIntervalMs ?? 2000;
+        const deadline = Date.now() + timeoutMs;
+        let last: PaymentIntent | null = null;
+        while (Date.now() < deadline) {
+          try {
+            last = await client.payments.getIntent(id);
+            if (PAYMENT_FINAL_STATUSES.includes(last.status)) return last;
+          } catch {
+            // Sin señal o NODO caído un momento: se sigue esperando.
+          }
+          await sleep(Math.max(last?.poll_after_ms ?? 0, minIntervalMs));
+        }
+        if (last) return last;
+        throw new Error(`NODO payments.pollUntilFinal: sin respuesta de NODO en ${timeoutMs} ms`);
+      },
+
+      /** Cancela un cobro en curso. `canceled: false` + reason "cancel_on_terminal" = hay que cancelarlo en el aparato. */
+      async cancelIntent(id: string): Promise<CancelPaymentIntentResult> {
+        const res = await fetch(`${base}/api/v1/payments/intents/${id}/cancel`, {
+          method: "POST",
+          headers: authHeaders(config.apiKey),
+        });
+        return parseJsonOrThrow<CancelPaymentIntentResult>(res, "payments.cancelIntent");
+      },
+
+      /**
+       * Devuelve plata. Sin `amount` = total. Scope `payments:refund`.
+       *
+       * EJECUTA DIRECTO, sin confirmación humana. `idempotencyKey` es
+       * obligatoria por el mismo motivo que en createIntent: un reintento de
+       * red sin ella podría devolver DOS VECES un reembolso parcial.
+       */
+      async refundIntent(
+        id: string,
+        idempotencyKey: string,
+        opts?: { amount?: number; reason?: string },
+      ): Promise<RefundPaymentIntentResult> {
+        if (!idempotencyKey) {
+          throw new Error("NODO payments.refundIntent: idempotencyKey es obligatoria");
+        }
+        const res = await fetch(`${base}/api/v1/payments/intents/${id}/refund`, {
+          method: "POST",
+          headers: {
+            ...authHeaders(config.apiKey),
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify({ amount: opts?.amount, reason: opts?.reason }),
+        });
+        return parseJsonOrThrow<RefundPaymentIntentResult>(res, "payments.refundIntent");
+      },
+
+      /** Terminales habilitados. Filtrá `connection_mode === "cloud"` si cobrás desde un servidor. */
+      async listTerminals(): Promise<PaymentTerminal[]> {
+        const res = await fetch(`${base}/api/v1/payments/terminals`, {
+          headers: authHeaders(config.apiKey),
+        });
+        const body = await parseJsonOrThrow<{ terminals: PaymentTerminal[] }>(res, "payments.listTerminals");
+        return body.terminals;
+      },
+    },
   };
 
   return client;
 }
 
 export type NodoClient = ReturnType<typeof createNodoClient>;
-export { ACCEPTED_STATUSES, ERROR_STATUSES, NON_FINAL_STATUSES };
+export { ACCEPTED_STATUSES, ERROR_STATUSES, NON_FINAL_STATUSES, PAYMENT_FINAL_STATUSES };
 export type { AnnulOptions, DocType, DraftResult, DteRecord, EmitItem, EmitPayload, EmitReference, EmitResult, NodoClientConfig, PollOptions } from "./types";

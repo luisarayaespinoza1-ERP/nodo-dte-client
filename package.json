@@ -15,5 +15,8 @@
   ],
   "devDependencies": {
     "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "test": "npx tsx --test src/**/*.test.ts"
   }
 }
