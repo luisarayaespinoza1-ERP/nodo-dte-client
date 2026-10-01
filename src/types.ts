@@ -14,6 +14,18 @@ export interface EmitItem {
   discountPercent?: number;
   /** true = línea exenta de IVA (boleta/factura exenta). */
   isExempt?: boolean;
+  /** CodImpAdic del SII (ILA, Art. 37, específicos). Solo factura 33 y notas 56/61, línea afecta.
+   *  Los ad-valorem (ej. 24/25/26 ILA) los calcula el ERP; los por volumen exigen `additionalTaxOverrides`. */
+  additionalTaxCode?: number;
+}
+
+/** Monto ya calculado de un impuesto que no sale de un porcentaje sobre el neto (diésel, gasolina, gas). */
+export interface AdditionalTaxOverride {
+  code: number;
+  /** TasaImp informada al SII (0-100). */
+  rate: number;
+  /** MontoImp en pesos enteros. */
+  amount: number;
 }
 
 /** Referencia a otro documento — obligatoria en notas de crédito/débito (56/61). */
@@ -39,6 +51,8 @@ export interface EmitPayload {
   fmaPago?: 1 | 2 | 3;
   items: EmitItem[];
   references?: EmitReference[];
+  /** Cada override debe corresponder a una línea marcada con `additionalTaxCode`. */
+  additionalTaxOverrides?: AdditionalTaxOverride[];
 }
 
 export interface NodoClientConfig {

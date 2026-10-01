@@ -53,6 +53,8 @@ const final = await nodo.pollUntilFinal(dte.id); // { status: 'ACCEPTED', folio,
 Métodos: `emit`, `draft` (scope `dte:draft`), `get`, `pollUntilFinal`, `pdf`, `xml`, `annul`, `ping`.
 Constantes de estado exportadas: `ACCEPTED_STATUSES`, `NON_FINAL_STATUSES`, `ERROR_STATUSES`.
 
+**Impuestos adicionales (ILA, Art. 37, específicos)** — solo factura 33 y notas 56/61: marca la línea con `additionalTaxCode` (ej. `24` ILA licores, `25` vinos, `26` cervezas) y NODO calcula el monto. Los específicos por volumen (diésel, gasolina, gas) mandan además `additionalTaxOverrides: [{ code, rate, amount }]`. Sin descuentos globales. Reglas completas: `ERP_API_CONTRACT.md` → "Fase G".
+
 ### Proxy de PDF/XML/anulación en un route handler (App Router)
 
 ```ts
